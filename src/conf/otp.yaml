@@ -1,0 +1,33 @@
+inherit: 
+    - models/standard.yaml
+    - wandb.yaml
+
+model:
+    n_dims: 5
+    n_positions: 11
+
+training:
+    task: one_time_pad
+    data: bitstring
+    task_kwargs: {}
+    batch_size: 64
+    learning_rate: 0.0001
+    save_every_steps: 100
+    keep_every_steps: 100000
+    train_steps: 5001
+    curriculum:
+        dims:
+            start: 5
+            end: 5
+            inc: 0
+            interval: 1
+        points:
+            start: 11
+            end: 11
+            inc: 0
+            interval: 1
+
+out_dir: ../models/otp
+
+wandb:
+    name: "otp_toy"

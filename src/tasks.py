@@ -60,6 +60,7 @@ def get_task_sampler(
         "quadratic_regression": QuadraticRegression,
         "relu_2nn_regression": Relu2nnRegression,
         "decision_tree": DecisionTree,
+        "one_time_pad": OneTimePad,
     }
     if task_name in task_names_to_classes:
         task_cls = task_names_to_classes[task_name]
@@ -72,6 +73,63 @@ def get_task_sampler(
         print("Unknown task")
         raise NotImplementedError
 
+class OneTimePad(Task):
+    def __init__(self, n_dims, batch_size, pool_dict=None, seeds=None):
+        super(OneTimePad, self).__init__(n_dims, batch_size, pool_dict, seeds)
+
+        # --- Create / fetch the per‑task keys --------------------------------
+        if pool_dict is None and seeds is None:
+            # Fully random keys
+            self.k_b = torch.randint(0, 2, (self.b_size, self.n_dims)).float()
+
+        elif seeds is not None:
+            # Deterministic keys (one seed per task)
+            self.k_b = torch.zeros(self.b_size, self.n_dims)
+            generator = torch.Generator()
+            assert len(seeds) == self.b_size, "`seeds` must match batch size"
+            for i, seed in enumerate(seeds):
+                generator.manual_seed(seed)
+                self.k_b[i] = torch.randint(0, 2, (self.n_dims,),
+                                            generator=generator).float()
+
+        else:
+            # Draw keys from a provided pool
+            assert "k" in pool_dict, "pool_dict must contain tensor 'k'"
+            indices = torch.randperm(len(pool_dict["k"]))[:batch_size]
+            self.k_b = pool_dict["k"][indices]
+
+    def evaluate(self, xs_b: torch.Tensor) -> torch.Tensor:
+        """
+        XOR the input batch with the secret keys.
+
+        Parameters
+        ----------
+        xs_b : torch.Tensor
+            Shape ``[B, P, n_dims]``, entries 0/1 (float or int).
+
+        Returns
+        -------
+        torch.Tensor
+            Ciphertexts (same shape/dtype as ``xs_b``).
+        """
+        k_b = self.k_b.to(xs_b.device).unsqueeze(1)        # [B, 1, n_dims]
+        ys_b = (xs_b.bool() ^ k_b.bool()).float()          # XOR + cast -> float
+        return ys_b
+
+    @staticmethod
+    def generate_pool_dict(n_dims, num_tasks, **kwargs):
+        """Pre‑generate a bank of random keys that can be reused."""
+        return {"k": torch.randint(0, 2, (num_tasks, n_dims)).float()}
+
+    @staticmethod
+    def get_metric():
+        # Bit‑wise MSE works fine (0/1 targets) but feel free to swap in
+        # a Hamming‑distance metric if you have one handy.
+        return squared_error
+
+    @staticmethod
+    def get_training_metric():
+        return mean_squared_error
 
 class LinearRegression(Task):
     def __init__(self, n_dims, batch_size, pool_dict=None, seeds=None, scale=1):
